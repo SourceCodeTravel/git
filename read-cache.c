@@ -1,5 +1,7 @@
 #include "cache.h"//
 
+const char *sha1_file_directory = NULL;
+
 char *sha1_to_hex(unsigned char *sha1)
 {
 	static char buffer[50];
@@ -94,18 +96,27 @@ int write_sha1_buffer(unsigned char *sha1, void *buf, unsigned int size)
 	return 0;
 }
 
+int error(const char * string)
+{
+	fprintf(stderr, "error: %s\n", string);
+	return -1;
+}
+
 int read_cache(void)
 {
 	int fd;//
 	//void *map;
 
-	fd = open(".dircache/index", O_RDONLY|O_CREAT);
-	if (fd < 0) {
-		printf("ddd\n");//
-		return 0;//
-	}
+	sha1_file_directory = getenv(DB_ENVIRONMENT);
+	if (!sha1_file_directory)
+		sha1_file_directory = DEFAULT_DB_ENVIRONMENT;
+	if (access(sha1_file_directory, X_OK) < 0)
+		return error("no access to SHA1 file directory");
+	fd = open(".dircache/index", O_RDONLY);
+	if (fd < 0)
+		return (errno == ENOENT) ? 0 : error("open failed");
 	//map = mmap(NULL, 256, PORT_READ, MAP_PRIVATE, fd, 0);//
-	close(fd);
+	//close(fd);
 	return 0;
 }
 

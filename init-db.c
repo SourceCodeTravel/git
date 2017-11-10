@@ -4,6 +4,7 @@ int main(int argc, char **argv)
 {
 	char *sha1_dir, *path;//
 	int len, i;//
+//	error("aaa\n");
 
 	if (mkdir(".dircache", 0700) < 0) {
 		perror("unable to create .dircache");
