@@ -17,11 +17,12 @@
 #include <openssl/sha.h>
 #include <zlib.h>
 
+#define CACHE_SIGNATURE 0x44495243
 struct cache_header {
 	unsigned int signature;
 	unsigned int version;
 	unsigned int entries;
-	unsigned char shal[20];
+	unsigned char sha1[20];
 };
 struct cache_time {
 	unsigned int sec;
@@ -42,10 +43,16 @@ struct cache_entry {
 	unsigned char name[0];
 };
 
+struct cache_entry **active_cache;
+unsigned int active_nr, active_alloc;
+
 #define DB_ENVIRONMENT "SHA1_FILE_DIRECTORY"
 #define DEFAULT_DB_ENVIRONMENT ".dircache/objects"
 
 #define cache_entry_size(len) ((offsetof(struct cache_entry, name) + (len) + 8) & ~7)
+#define ce_size(ce) cache_entry_size((ce)->namelen)
+
+#define alloc_nr(x) ((((x)+16)*3)/2)
 
 int read_cache(void);//
 int write_sha1_buffer(unsigned char *sha1, void *buf, unsigned int size);//

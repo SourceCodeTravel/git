@@ -1,3 +1,8 @@
+/*
+ * GIT - The information manager from hell
+ *
+ * Copyright (C) Linus Torvalds, 2005
+ */
 #include "cache.h"
 
 static int cache_name_compare(const char *name1, int len1, const char *name2, int len2)
@@ -15,7 +20,7 @@ static int cache_name_compare(const char *name1, int len1, const char *name2, in
 	return 0;
 }
 
-static int cache_name_pos(const char *name, int namelen)//XX??
+static int cache_name_pos(const char *name, int namelen)
 {
 	int first, last;
 
@@ -36,24 +41,36 @@ static int cache_name_pos(const char *name, int namelen)//XX??
 	return first;
 }
 
-static int remove_file_from_cache(char *path)//XX??
+static int remove_file_from_cache(char *path)
 {
+	int pos = cache_name_pos(path, strlen(path));
+	if (pos < 0) {
+		pos = -pos-1;
+		active_nr--;
+		if (pos < active_nr)
+			memmove(active_cache + pos, active_cache + pos + 1, (active_nr - pos - 1) * sizeof(struct cache_entry *));
+	}
 }
 
-static int add_cache_entry(struct cache_entry *ce)//XX??
+static int add_cache_entry(struct cache_entry *ce)
 {
 	int pos;
 
 	pos = cache_name_pos(ce->name, ce->namelen);
-	if (pos < 0) {
 
+	/* existing match? Just replace it */
+	if (pos < 0) {
+		active_cache[-pos-1] = ce;
+		return 0;
 	}
 
+	/* Make sure the array is big enough .. */
 	if (active_nr == active_alloc) {
 		active_alloc = alloc_nr(active_alloc);
 		active_cache = realloc(active_cache, active_alloc * sizeof(struct cache_entry *));
 	}
 
+	/* Add it in.. */
 	active_nr++;
 	if (active_nr > pos)
 		memmove(active_cache + pos + 1, active_cache + pos, (active_nr - pos - 1) * sizeof(ce));
@@ -79,7 +96,7 @@ static int index_fd(const char *path, int namelen, struct cache_entry *ce, int f
 
 	/*
 	 * ASCII size + nul byte
-	 */
+	 */	
 	stream.next_in = metadata;
 	stream.avail_in = 1+sprintf(metadata, "blob %lu", (unsigned long) st->st_size);
 	stream.next_out = out;
@@ -96,7 +113,7 @@ static int index_fd(const char *path, int namelen, struct cache_entry *ce, int f
 		/*nothing */;
 
 	deflateEnd(&stream);
-
+	
 	SHA1_Init(&c);
 	SHA1_Update(&c, out, stream.total_out);
 	SHA1_Final(ce->sha1, &c);
@@ -140,6 +157,7 @@ static int add_file_to_cache(char *path)
 
 	if (index_fd(path, namelen, ce, fd, &st) < 0)
 		return -1;
+
 	return add_cache_entry(ce);
 }
 
@@ -172,7 +190,7 @@ static int write_cache(int newfd, struct cache_entry **cache, int entries)
 			return -1;
 	}
 	return 0;
-}
+}		
 
 /*
  * We fundamentally don't like some paths: we don't want
@@ -180,8 +198,8 @@ static int write_cache(int newfd, struct cache_entry **cache, int entries)
  * any other dot-files (.dircache or anything else). They
  * are hidden, for chist sake.
  *
- * Also, we don't want double slashes or shashes at the
- * end that can make pathnames ambiguous.
+ * Also, we don't want double slashes or slashes at the
+ * end that can make pathnames ambiguous. 
  */
 static int verify_path(char *path)
 {
@@ -233,4 +251,3 @@ int main(int argc, char **argv)
 out:
 	unlink(".dircache/index.lock");
 }
-

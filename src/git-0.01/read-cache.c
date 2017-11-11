@@ -1,13 +1,48 @@
+/*
+ * GIT - The information manager from hell
+ *
+ * Copyright (C) Linus Torvalds, 2005
+ */
 #include "cache.h"
 
 const char *sha1_file_directory = NULL;
 struct cache_entry **active_cache = NULL;
 unsigned int active_nr = 0, active_alloc = 0;
 
-char *sha1_to_hex(unsigned char *sha1)
+void usage(const char *err)
+{
+	fprintf(stderr, "read-tree: %s\n", err);
+	exit(1);
+}
+
+static unsigned hexval(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return ~0;
+}
+
+int get_sha1_hex(char *hex, unsigned char *sha1)
+{
+	int i;
+	for (i = 0; i < 20; i++) {
+		unsigned int val = (hexval(hex[0]) << 4) | hexval(hex[1]);
+		if (val & ~0xff)
+			return -1;
+		*sha1++ = val;
+		hex += 2;
+	}
+	return 0;
+}
+
+char * sha1_to_hex(unsigned char *sha1)
 {
 	static char buffer[50];
-	static char hex[] = "01234567890abcdef";
+	static const char hex[] = "0123456789abcdef";
 	char *buf = buffer;
 	int i;
 
@@ -30,7 +65,7 @@ char *sha1_file_name(unsigned char *sha1)
 	static char *name, *base;
 
 	if (!base) {
-		char *sha1_file_directory = DEFAULT_DB_ENVIRONMENT;//
+		char *sha1_file_directory = getenv(DB_ENVIRONMENT) ? : DEFAULT_DB_ENVIRONMENT;
 		int len = strlen(sha1_file_directory);
 		base = malloc(len + 60);
 		memcpy(base, sha1_file_directory, len);
@@ -51,6 +86,53 @@ char *sha1_file_name(unsigned char *sha1)
 
 void * read_sha1_file(unsigned char *sha1, char *type, unsigned long *size)
 {
+	z_stream stream;
+	char buffer[8192];
+	struct stat st;
+	int i, fd, ret, bytes;
+	void *map, *buf;
+	char *filename = sha1_file_name(sha1);
+
+	fd = open(filename, O_RDONLY);
+	if (fd < 0) {
+		perror(filename);
+		return NULL;
+	}
+	if (fstat(fd, &st) < 0) {
+		close(fd);
+		return NULL;
+	}
+	map = mmap(NULL, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);
+	if (-1 == (int)(long)map)
+		return NULL;
+
+	/* Get the data stream */
+	memset(&stream, 0, sizeof(stream));
+	stream.next_in = map;
+	stream.avail_in = st.st_size;
+	stream.next_out = buffer;
+	stream.avail_out = sizeof(buffer);
+
+	inflateInit(&stream);
+	ret = inflate(&stream, 0);
+	if (sscanf(buffer, "%10s %lu", type, size) != 2)
+		return NULL;
+	bytes = strlen(buffer) + 1;
+	buf = malloc(*size);
+	if (!buf)
+		return NULL;
+
+	memcpy(buf, buffer + bytes, stream.total_out - bytes);
+	bytes = stream.total_out - bytes;
+	if (bytes < *size && ret == Z_OK) {
+		stream.next_out = buf + bytes;
+		stream.avail_out = *size - bytes;
+		while (inflate(&stream, Z_FINISH) == Z_OK)
+			/* nothing */;
+	}
+	inflateEnd(&stream);
+	return buf;
 }
 
 int write_sha1_file(char *buf, unsigned len)
@@ -72,8 +154,7 @@ int write_sha1_file(char *buf, unsigned len)
 	stream.avail_in = len;
 	stream.next_out = compressed;
 	stream.avail_out = size;
-
-	while (deflate(&stream, Z_FINISH) ==  Z_OK)
+	while (deflate(&stream, Z_FINISH) == Z_OK)
 		/* nothing */;
 	deflateEnd(&stream);
 	size = stream.total_out;
@@ -102,7 +183,7 @@ int write_sha1_buffer(unsigned char *sha1, void *buf, unsigned int size)
 	return 0;
 }
 
-int error(const char * string)
+static int error(const char * string)
 {
 	fprintf(stderr, "error: %s\n", string);
 	return -1;
@@ -126,7 +207,7 @@ static int verify_hdr(struct cache_header *hdr, unsigned long size)
 	return 0;
 }
 
-int read_cache(void)//XX??
+int read_cache(void)
 {
 	int fd, i;
 	struct stat st;
@@ -149,6 +230,7 @@ int read_cache(void)//XX??
 
 	map = (void *)-1;
 	if (!fstat(fd, &st)) {
+		map = NULL;
 		size = st.st_size;
 		errno = EINVAL;
 		if (size > sizeof(struct cache_header))
@@ -168,10 +250,15 @@ int read_cache(void)//XX??
 
 	offset = sizeof(*hdr);
 	for (i = 0; i < hdr->entries; i++) {
+		struct cache_entry *ce = map + offset;
+		offset = offset + ce_size(ce);
+		active_cache[i] = ce;
 	}
 	return active_nr;
+
 unmap:
 	munmap(map, size);
+	errno = EINVAL;
 	return error("verify header failed");
 }
 
